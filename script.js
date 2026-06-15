@@ -1,5 +1,5 @@
 const FILES = {
-    achievements: 'https://docs.google.com/spreadsheets/d/1NaHM7tIL6YjiKdBlZo_4nuLqnMWb_VYYs8nfXpvMYf4/edit?gid=702241830#gid=702241830',
+    achievements: 'achivements.json',
     platformers: 'platformers.json',
     timeline: 'timeline.json',
     platformertimeline: 'platformertimeline.json',
