@@ -1,15 +1,8 @@
 const FILES = {
-    achievements: 'achivements.json',
-    platformers: 'platformers.json',
-    timeline: 'timeline.json',
-    platformertimeline: 'platformertimeline.json',
-    pending: 'pending.json',
-    legacy: 'legacy.json',
-};
-
-const PLATFORMER_MAP = {
-    achievements: 'platformers',
-    timeline: 'platformertimeline',
+    achievements: 'https://docs.google.com/spreadsheets/d/1NaHM7tIL6YjiKdBlZo_4nuLqnMWb_VYYs8nfXpvMYf4/export?format=csv&gid=702241830',
+    timeline: 'https://docs.google.com/spreadsheets/d/1NaHM7tIL6YjiKdBlZo_4nuLqnMWb_VYYs8nfXpvMYf4/export?format=csv&gid=308560180',
+    pending: 'https://docs.google.com/spreadsheets/d/1NaHM7tIL6YjiKdBlZo_4nuLqnMWb_VYYs8nfXpvMYf4/export?format=csv&gid=745690361',
+    legacy: 'https://docs.google.com/spreadsheets/d/1NaHM7tIL6YjiKdBlZo_4nuLqnMWb_VYYs8nfXpvMYf4/export?format=csv&gid=1992659129',
 };
 
 const TABS = Object.keys(FILES);
@@ -79,7 +72,6 @@ const DUPE_ID_TO_PARENT = (() => {
 
 let state = {
     currentTab: 'achievements',
-    usePlatformers: false,
     sortKey: 'rank',
     sortDir: 'asc',
     search: '',
@@ -95,11 +87,6 @@ let editorState = {
     fileKey: '',
     dragSrc: null,
 };
-
-function resolveFileKey() {
-    const base = state.currentTab;
-    return (state.usePlatformers && PLATFORMER_MAP[base]) ? PLATFORMER_MAP[base] : base;
-}
 
 function normalizeForSearch(str) {
     return (str || '').toLowerCase()
@@ -494,8 +481,7 @@ function renderTabs() {
 function renderContent() {
     const content = document.getElementById('content');
     const meta = document.getElementById('resultsMeta');
-    const fileKey = resolveFileKey();
-    const rawData = state.data[fileKey];
+    const rawData = state.data[state.currentTab];
 
     if (!rawData) {
         content.innerHTML = '<div class="loading">Loading…</div>';
@@ -641,10 +627,26 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function parseCSV(csv) {
+    const rows = csv.trim().split("\n").map(r => r.split(","));
+    return rows.slice(1).map(r => ({
+        name: r[0]?.trim() || '',
+        player: r[1]?.trim() || '',
+        date: r[2]?.trim() || '',
+        length: Number(r[3]) || undefined,
+        levelID: r[4]?.trim() || '',
+        id: r[5]?.trim() || '',
+        submitter: r[6]?.trim() || '',
+        tags: r[7]?.split(';').map(t => t.trim()).filter(Boolean) || [],
+        thumbnail: r[8]?.trim() || '',
+        video: r[9]?.trim() || '',
+        showcaseVideo: r[10]?.trim() || '',
+    })).filter(a => a && a.name);
+}
+
 function loadData() {
-    const fileKey = resolveFileKey();
-    if (state.data[fileKey] !== undefined) {
-        buildTagIndex(state.data[fileKey]);
+    if (state.data[state.currentTab] !== undefined) {
+        buildTagIndex(state.data[state.currentTab]);
         renderTagPills();
         renderContent();
         loadBackground();
@@ -653,53 +655,23 @@ function loadData() {
 
     document.getElementById('content').innerHTML = '<div class="loading">Loading…</div>';
     document.getElementById('resultsMeta').textContent = '';
-fetch(FILES[fileKey])
-    .then(r => r.text())
-    .then(csv => {
-        const rows = csv.trim().split("\n").map(r => r.split(","));
-
-        const list = rows.slice(1).map(r => ({
-            name: r[0],
-            player: r[1],
-            date: r[2],
-            length: Number(r[3]),
-            levelID: r[4],
-            id: r[5],
-        }));
-
-        const valid = list.filter(a => a && typeof a.name === 'string' && a.name);
-        const merged = mergeDupes(valid);
-
-        state.data[fileKey] = merged;
-        buildTagIndex(merged);
-        renderTagPills();
-        renderContent();
-    })
-        .then(raw => {
-            let list;
-            if (Array.isArray(raw)) {
-                list = raw;
-            } else if (raw && Array.isArray(raw.items) && Array.isArray(raw.tags)) {
-                const masterTags = raw.tags;
-                list = raw.items.map(it => {
-                    if (!it || typeof it !== 'object') return it;
-                    const copy = { ...it };
-                    if (Array.isArray(copy.tags) && copy.tags.length && typeof copy.tags[0] === 'number') {
-                        copy.tags = copy.tags.map(idx => masterTags[idx]).filter(Boolean);
-                    }
-                    return copy;
-                });
-            } else {
-                list = raw.achievements || [];
-            }
-            const valid = list.filter(a => a && typeof a.name === 'string' && a.name);
-            const merged = mergeDupes(valid);
-            state.data[fileKey] = merged;
+    
+    fetch(FILES[state.currentTab])
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.text();
+        })
+        .then(csv => {
+            const list = parseCSV(csv);
+            const merged = mergeDupes(list);
+            state.data[state.currentTab] = merged;
             buildTagIndex(merged);
             renderTagPills();
             renderContent();
+            loadBackground();
         })
         .catch(err => {
+            console.error('Load error:', err);
             document.getElementById('content').innerHTML =
                 `<div class="error">Failed to load: ${escapeHtml(err.message)}</div>`;
         });
@@ -707,24 +679,24 @@ fetch(FILES[fileKey])
 
 function updateSortDirBtn() {
     const btn = document.getElementById('sortDirBtn');
+    if (!btn) return;
     btn.textContent = state.sortDir === 'asc' ? '↑' : '↓';
     btn.title = state.sortDir === 'asc' ? 'Ascending — click to reverse' : 'Descending — click to reverse';
 }
 
 function openEditor() {
-    const fileKey = resolveFileKey();
-    const rawData = state.data[fileKey];
+    const rawData = state.data[state.currentTab];
 
     if (!rawData) {
         alert('No data loaded for this tab. Visit the tab first to load its data.');
         return;
     }
 
-    editorState.fileKey = fileKey;
+    editorState.fileKey = state.currentTab;
     editorState.data = JSON.parse(JSON.stringify(rawData));
     editorState.dragSrc = null;
 
-    document.getElementById('editorTitle').textContent = `Editing: ${fileKey}`;
+    document.getElementById('editorTitle').textContent = `Editing: ${state.currentTab}`;
     renderEditorList();
 
     document.getElementById('editorModal').style.display = 'flex';
@@ -978,8 +950,7 @@ function loadBackground(bgImage) {
         return;
     }
 
-    const fileKey = resolveFileKey();
-    const data = state.data[fileKey];
+    const data = state.data[state.currentTab];
     if (!data || !data.length) return;
 
     const top = data.find(a => a && (a.thumbnail || a.levelID));
@@ -992,12 +963,11 @@ function loadBackground(bgImage) {
 }
 
 function init() {
-    try { const s = localStorage.getItem('usePlatformers'); state.usePlatformers = s === '1' || s === 'true'; } catch (e) { }
     try { state.sortKey = localStorage.getItem('thal_sort_key_achievements') || 'rank'; } catch (e) { }
     try { state.sortDir = localStorage.getItem('thal_sort_dir_achievements') || 'asc'; } catch (e) { }
 
-    document.getElementById('sortSelect').value = state.sortKey;
-    document.getElementById('platformerCheckbox').checked = state.usePlatformers;
+    const sortSelect = document.getElementById('sortSelect');
+    if (sortSelect) sortSelect.value = state.sortKey;
     updateSortDirBtn();
     renderTabs();
     loadData();
@@ -1006,138 +976,166 @@ function init() {
     const hamburgerBtn = document.getElementById('hamburgerBtn');
     const hamburgerMenu = document.getElementById('hamburgerMenu');
 
-    hamburgerBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        const isOpen = hamburgerMenu.classList.contains('open');
-        hamburgerMenu.classList.toggle('open', !isOpen);
-        hamburgerBtn.classList.toggle('open', !isOpen);
-        hamburgerBtn.setAttribute('aria-expanded', String(!isOpen));
-        hamburgerMenu.setAttribute('aria-hidden', String(isOpen));
-    });
+    if (hamburgerBtn) {
+        hamburgerBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            const isOpen = hamburgerMenu.classList.contains('open');
+            hamburgerMenu.classList.toggle('open', !isOpen);
+            hamburgerBtn.classList.toggle('open', !isOpen);
+            hamburgerBtn.setAttribute('aria-expanded', String(!isOpen));
+            hamburgerMenu.setAttribute('aria-hidden', String(isOpen));
+        });
+    }
 
     document.addEventListener('click', e => {
-        if (!hamburgerMenu.contains(e.target) && e.target !== hamburgerBtn) {
+        if (hamburgerMenu && !hamburgerMenu.contains(e.target) && e.target !== hamburgerBtn) {
             closeHamburger();
         }
     });
 
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
-            if (hamburgerMenu.classList.contains('open')) {
+            if (hamburgerMenu && hamburgerMenu.classList.contains('open')) {
                 closeHamburger();
                 return;
             }
         }
     });
 
-    document.getElementById('searchInput').addEventListener('input', e => {
-        if (e.target.value.trim().toLowerCase() === 'edit') {
-            e.target.value = '';
-            state.search = '';
-            openEditor();
-            return;
-        }
-        clearTimeout(state.searchTimer);
-        state.searchTimer = setTimeout(() => { state.search = e.target.value; renderContent(); }, 150);
-    });
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', e => {
+            if (e.target.value.trim().toLowerCase() === 'edit') {
+                e.target.value = '';
+                state.search = '';
+                openEditor();
+                return;
+            }
+            clearTimeout(state.searchTimer);
+            state.searchTimer = setTimeout(() => { state.search = e.target.value; renderContent(); }, 150);
+        });
+    }
 
-    document.getElementById('sortSelect').addEventListener('change', e => {
-        state.sortKey = e.target.value;
-        try { localStorage.setItem('thal_sort_key_achievements', state.sortKey); } catch (_) { }
-        if (state.sortKey === 'random') state.data = {};
-        renderContent();
-    });
+    const sortSelect2 = document.getElementById('sortSelect');
+    if (sortSelect2) {
+        sortSelect2.addEventListener('change', e => {
+            state.sortKey = e.target.value;
+            try { localStorage.setItem('thal_sort_key_achievements', state.sortKey); } catch (_) { }
+            if (state.sortKey === 'random') state.data = {};
+            renderContent();
+        });
+    }
 
-    document.getElementById('sortDirBtn').addEventListener('click', () => {
-        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
-        try { localStorage.setItem('thal_sort_dir_achievements', state.sortDir); } catch (_) { }
-        updateSortDirBtn();
-        renderContent();
-    });
+    const sortDirBtn = document.getElementById('sortDirBtn');
+    if (sortDirBtn) {
+        sortDirBtn.addEventListener('click', () => {
+            state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+            try { localStorage.setItem('thal_sort_dir_achievements', state.sortDir); } catch (_) { }
+            updateSortDirBtn();
+            renderContent();
+        });
+    }
 
-    document.getElementById('platformerCheckbox').addEventListener('change', e => {
-        state.usePlatformers = e.target.checked;
-        try { localStorage.setItem('usePlatformers', state.usePlatformers ? '1' : '0'); } catch (_) { }
-        state.includeTags = [];
-        state.excludeTags = [];
-        loadData();
-        loadBackground();
-    });
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', () => {
+            state.includeTags = [];
+            state.excludeTags = [];
+            renderTagPills();
+            renderContent();
+        });
+    }
 
-    document.getElementById('clearFiltersBtn').addEventListener('click', () => {
-        state.includeTags = [];
-        state.excludeTags = [];
-        renderTagPills();
-        renderContent();
-    });
-
-    document.getElementById('modalClose').addEventListener('click', closeModal);
+    const modalClose = document.getElementById('modalClose');
+    if (modalClose) {
+        modalClose.addEventListener('click', closeModal);
+    }
 
     const overlay = document.getElementById('achievementModal');
-    overlay.addEventListener('click', closeModal);
-    const modalBox = document.querySelector('.modal-box');
-    if (modalBox) modalBox.addEventListener('click', e => e.stopPropagation());
+    if (overlay) {
+        overlay.addEventListener('click', closeModal);
+        const modalBox = document.querySelector('.modal-box');
+        if (modalBox) modalBox.addEventListener('click', e => e.stopPropagation());
+    }
 
-    document.getElementById('editorApplyBtn').addEventListener('click', applyEditor);
+    const editorApplyBtn = document.getElementById('editorApplyBtn');
+    if (editorApplyBtn) {
+        editorApplyBtn.addEventListener('click', applyEditor);
+    }
 
-    document.getElementById('editorCloseBtn').addEventListener('click', () => {
-        if (editorState.data.length && !confirm('Discard all changes?')) return;
-        closeEditor();
-    });
-
-    document.getElementById('editorModal').addEventListener('click', e => {
-        if (e.target === document.getElementById('editorModal')) {
-            if (!confirm('Discard all changes?')) return;
+    const editorCloseBtn = document.getElementById('editorCloseBtn');
+    if (editorCloseBtn) {
+        editorCloseBtn.addEventListener('click', () => {
+            if (editorState.data.length && !confirm('Discard all changes?')) return;
             closeEditor();
-        }
-    });
-
-    document.getElementById('editorAddBtn').addEventListener('click', () => {
-        editorState.data.push({ name: 'New Item' });
-        renderEditorList();
-        requestAnimationFrame(() => {
-            const list = document.getElementById('editorList');
-            list.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         });
-    });
+    }
 
-    document.getElementById('editorCopyBtn').addEventListener('click', () => {
-        const btn = document.getElementById('editorCopyBtn');
-        const json = getEditorJSON();
-        const restore = btn.textContent;
+    const editorModal = document.getElementById('editorModal');
+    if (editorModal) {
+        editorModal.addEventListener('click', e => {
+            if (e.target === editorModal) {
+                if (!confirm('Discard all changes?')) return;
+                closeEditor();
+            }
+        });
+    }
 
-        navigator.clipboard.writeText(json)
-            .then(() => {
-                btn.textContent = '✓ Copied!';
-                btn.classList.add('success');
-                setTimeout(() => { btn.textContent = restore; btn.classList.remove('success'); }, 2200);
-            })
-            .catch(() => {
-                const ta = document.createElement('textarea');
-                ta.value = json;
-                ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-                btn.textContent = '✓ Copied!';
-                btn.classList.add('success');
-                setTimeout(() => { btn.textContent = restore; btn.classList.remove('success'); }, 2200);
+    const editorAddBtn = document.getElementById('editorAddBtn');
+    if (editorAddBtn) {
+        editorAddBtn.addEventListener('click', () => {
+            editorState.data.push({ name: 'New Item' });
+            renderEditorList();
+            requestAnimationFrame(() => {
+                const list = document.getElementById('editorList');
+                list.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             });
-    });
+        });
+    }
 
-    document.getElementById('editorDownloadBtn').addEventListener('click', () => {
-        const json = getEditorJSON();
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${editorState.fileKey}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    });
+    const editorCopyBtn = document.getElementById('editorCopyBtn');
+    if (editorCopyBtn) {
+        editorCopyBtn.addEventListener('click', () => {
+            const btn = editorCopyBtn;
+            const json = getEditorJSON();
+            const restore = btn.textContent;
+
+            navigator.clipboard.writeText(json)
+                .then(() => {
+                    btn.textContent = '✓ Copied!';
+                    btn.classList.add('success');
+                    setTimeout(() => { btn.textContent = restore; btn.classList.remove('success'); }, 2200);
+                })
+                .catch(() => {
+                    const ta = document.createElement('textarea');
+                    ta.value = json;
+                    ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    btn.textContent = '✓ Copied!';
+                    btn.classList.add('success');
+                    setTimeout(() => { btn.textContent = restore; btn.classList.remove('success'); }, 2200);
+                });
+        });
+    }
+
+    const editorDownloadBtn = document.getElementById('editorDownloadBtn');
+    if (editorDownloadBtn) {
+        editorDownloadBtn.addEventListener('click', () => {
+            const json = getEditorJSON();
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${editorState.fileKey}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
 
     document.addEventListener('keydown', e => {
         if (e.shiftKey && e.key === 'M') {
@@ -1145,7 +1143,8 @@ function init() {
             return;
         }
         if (e.key === 'Escape') {
-            if (document.getElementById('editorModal').style.display !== 'none') {
+            const editorModal = document.getElementById('editorModal');
+            if (editorModal && editorModal.style.display !== 'none') {
                 if (!confirm('Discard all changes?')) return;
                 closeEditor();
             } else {
