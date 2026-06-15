@@ -628,19 +628,69 @@ function escapeHtml(str) {
 }
 
 function parseCSV(csv) {
-    const rows = csv.trim().split("\n").map(r => r.split(","));
+    const lines = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < csv.length; i++) {
+        const char = csv[i];
+        const nextChar = csv[i + 1];
+
+        if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+                current += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === '\n' && !inQuotes) {
+            lines.push(current);
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    if (current) lines.push(current);
+
+    const rows = lines.map(line => {
+        const fields = [];
+        let field = '';
+        let inQuotes2 = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const nextChar = line[i + 1];
+
+            if (char === '"') {
+                if (inQuotes2 && nextChar === '"') {
+                    field += '"';
+                    i++;
+                } else {
+                    inQuotes2 = !inQuotes2;
+                }
+            } else if (char === ',' && !inQuotes2) {
+                fields.push(field.trim());
+                field = '';
+            } else {
+                field += char;
+            }
+        }
+        if (field || fields.length > 0) fields.push(field.trim());
+        return fields;
+    });
+
     return rows.slice(1).map(r => ({
-        name: r[0]?.trim() || '',
-        player: r[1]?.trim() || '',
-        date: r[2]?.trim() || '',
+        name: r[0] || '',
+        player: r[1] || '',
+        date: r[2] || '',
         length: Number(r[3]) || undefined,
-        levelID: r[4]?.trim() || '',
-        id: r[5]?.trim() || '',
-        submitter: r[6]?.trim() || '',
+        levelID: r[4] || '',
+        id: r[5] || '',
+        submitter: r[6] || '',
         tags: r[7]?.split(';').map(t => t.trim()).filter(Boolean) || [],
-        thumbnail: r[8]?.trim() || '',
-        video: r[9]?.trim() || '',
-        showcaseVideo: r[10]?.trim() || '',
+        thumbnail: r[8] || '',
+        video: r[9] || '',
+        showcaseVideo: r[10] || '',
     })).filter(a => a && a.name);
 }
 
