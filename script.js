@@ -1,5 +1,5 @@
 const FILES = {
-    achievements: 'achievements.json',
+    achievements: 'https://docs.google.com/spreadsheets/d/1NaHM7tIL6YjiKdBlZo_4nuLqnMWb_VYYs8nfXpvMYf4/edit?gid=702241830#gid=702241830',
     platformers: 'platformers.json',
     timeline: 'timeline.json',
     platformertimeline: 'platformertimeline.json',
@@ -653,9 +653,28 @@ function loadData() {
 
     document.getElementById('content').innerHTML = '<div class="loading">Loading…</div>';
     document.getElementById('resultsMeta').textContent = '';
+fetch(FILES[fileKey])
+    .then(r => r.text())
+    .then(csv => {
+        const rows = csv.trim().split("\n").map(r => r.split(","));
 
-    fetch(FILES[fileKey])
-        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        const list = rows.slice(1).map(r => ({
+            name: r[0],
+            player: r[1],
+            date: r[2],
+            length: Number(r[3]),
+            levelID: r[4],
+            id: r[5],
+        }));
+
+        const valid = list.filter(a => a && typeof a.name === 'string' && a.name);
+        const merged = mergeDupes(valid);
+
+        state.data[fileKey] = merged;
+        buildTagIndex(merged);
+        renderTagPills();
+        renderContent();
+    })
         .then(raw => {
             let list;
             if (Array.isArray(raw)) {
